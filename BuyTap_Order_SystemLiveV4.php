@@ -1299,9 +1299,9 @@ function buytap_maybe_release_batch() {
     $time_ok  = ($last === 0) || (($now - $last) >= $interval);
     $soldout  = ($public <= $floor);
 
-    if ($soldout || $time_ok) {
-        buytap_release_new_batch();
-    }
+    if ($time_ok) {
+    buytap_release_new_batch();
+	}
 }
 
 
@@ -1328,32 +1328,36 @@ add_shortcode('buytap_tokens', 'buytap_display_available_tokens_shortcode');
 // =============================================
 // FRONTEND: Dynamic Token Pool + Countdown
 // =============================================
-
 /**
  * Shortcode: [buytap_public_tokens]
- * Shows animated token count + SOLD OUT + countdown to next drop
+ * Shows animated token count + SOLD OUT (countdown hidden)
  */
 add_shortcode('buytap_public_tokens', function () {
-    // ✅ use the correct option (this is your public pool)
     $public_tokens = (int) get_option('buytap_total_tokens', 0);
+
+    // Ensure last_release is always set
     $last_release  = (int) get_option('buytap_last_release', 0);
     $interval      = (int) get_option('buytap_release_interval', 6 * HOUR_IN_SECONDS);
+    if ($last_release === 0) {
+        $last_release = time();
+        update_option('buytap_last_release', $last_release);
+    }
     $next_release  = $last_release + $interval;
 
     ob_start(); ?>
-    <div id="buytap-public-tokens" style="font-size:20px; font-weight:bold; ">
+    <div id="buytap-public-tokens" style="font-size:20px; font-weight:bold;">
         <?php if ($public_tokens <= 1000): ?>
-            <span style="color:red;">🚫 SOLD OUT</span><br>
-            <small>Next release in <span id="buytap-next-drop"></span></small>
+            <span style="color:red;">🚫 SOLD OUT</span>
         <?php else: ?>
             <span id="buytap-token-counter"><?= number_format($public_tokens) ?></span> Available Tokens
         <?php endif; ?>
-        <!-- Pass release timestamp for JS -->
-        <span id="buytap-next-release" data-release="<?= (int) $next_release ?>"></span>
+        <!-- Hidden timestamp for JS logic -->
+        <span id="buytap-next-release" data-release="<?= esc_attr($next_release) ?>" style="display:none;"></span>
     </div>
     <?php
     return ob_get_clean();
 });
+
 
 // ==========================
 // FRONTEND JS (safe enqueue)
@@ -1363,20 +1367,18 @@ add_action('wp_footer', function () {
     <script>
     document.addEventListener("DOMContentLoaded", function() {
         const tokenCounter = document.getElementById("buytap-token-counter");
-        const nextDrop     = document.getElementById("buytap-next-drop");
         const releaseEl    = document.getElementById("buytap-next-release");
         const nextRelease  = releaseEl ? parseInt(releaseEl.dataset.release, 10) * 1000 : 0;
 
-        // Countdown (only if SOLD OUT)
-        if (nextDrop && nextRelease) {
+        // Countdown (runs silently in background, no user display)
+        if (nextRelease) {
             function updateCountdown() {
                 const now  = Date.now();
                 const diff = nextRelease - now;
-                if (diff <= 0) { nextDrop.textContent = "00:00:00"; return; }
-                const h = Math.floor(diff / 3600000);
-                const m = Math.floor((diff % 3600000) / 60000);
-                const s = Math.floor((diff % 60000) / 1000);
-                nextDrop.textContent = `${String(h).padStart(2,"0")}:${String(m).padStart(2,"0")}:${String(s).padStart(2,"0")}`;
+                if (diff <= 0) {
+                    // Drop is ready → you can trigger refresh or other logic here later
+                    return;
+                }
                 requestAnimationFrame(updateCountdown);
             }
             updateCountdown();
@@ -1398,6 +1400,7 @@ add_action('wp_footer', function () {
     </script>
     <?php
 });
+
 
 // =============================================
 // ADMIN TOKEN POOL MANAGEMENT
@@ -3161,13 +3164,6 @@ add_action('init', function() {
 // 3. Hook the event to your pairing function
 add_action('buytap_minutely_pairing', 'buytap_run_auto_pairing');
 add_action('buytap_minutely_pairing', 'buytap_maybe_release_batch');
-
-// Also check batch release each minute
-add_action('buytap_minutely_pairing', function() {
-    buytap_maybe_release_batch();
-});
-
-
 //----------------------------------------------------------------
 
 
