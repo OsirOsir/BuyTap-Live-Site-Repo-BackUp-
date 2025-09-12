@@ -2325,10 +2325,15 @@ function buytap_pair_orders($order_id) {
             $buyer_id  = $is_buyer ? $order_id : $m->ID;
             $seller_id = $is_buyer ? $m->ID    : $order_id;
 
-            // ✅ Prevent self-pairing: skip if buyer and seller have same post_author
-            if (get_post_field('post_author', $buyer_id) == get_post_field('post_author', $seller_id)) {
-                continue;
-            }
+			// ✅ Prevent self-pairing (stronger check)
+			$buyer_author  = (int) get_post_field('post_author', $buyer_id);
+			$seller_author = (int) get_post_field('post_author', $seller_id);
+
+			if ($buyer_author === $seller_author) {
+				// prevent self-pairing completely
+				continue;
+			}
+
 
             if ($is_buyer) {
                 if (buytap_buyer_remaining($order_id) <= 0) break;
