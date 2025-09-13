@@ -986,9 +986,6 @@ function buytap_process_order_submission($amount, $duration, $buyer_id = 0) {
                 'applied_to_order' => 0,
             ];
             update_user_meta($upline_id, 'referral_bonus_history', $bonus_history);
-			
-			// Store reference for easy lookup later
-       	 	update_post_meta($order_id, '_has_pending_referral_bonus', 'yes');
         }
     }
 
@@ -997,72 +994,6 @@ function buytap_process_order_submission($amount, $duration, $buyer_id = 0) {
     buytap_pair_orders($order_id);
 
     return $order_id;
-}
-
-// =============================================
-// REFERRAL BONUS ACTIVATION SYSTEM
-// =============================================
-
-/**
- * Activate referral bonus when order becomes Active
- * Only processes bonuses for orders that have completed payment
- */
-function buytap_activate_referral_bonus($order_id) {
-    // Check if this order has a pending referral bonus
-    if (get_post_meta($order_id, '_has_pending_referral_bonus', true) !== 'yes') {
-        return false;
-    }
-    
-    $buyer_id   = (int) get_post_field('post_author', $order_id);
-    $promo_code = get_user_meta($buyer_id, 'promo_code', true);
-    if (!$promo_code) return false;
-
-    $upline_user = get_users([
-        'meta_key'   => 'my_referral_code',
-        'meta_value' => sanitize_text_field($promo_code),
-        'number'     => 1,
-        'fields'     => 'ID'
-    ]);
-    if (empty($upline_user)) return false;
-
-    $upline_id     = $upline_user[0];
-    $bonus_history = get_user_meta($upline_id, 'referral_bonus_history', true) ?: [];
-    $bonus_activated = false;
-
-   foreach ($bonus_history as &$entry) {
-        if ($entry['order_id'] == $order_id && $entry['status'] === 'pending') {
-            // ✅ APPLY THE BONUS TO THE ORDER (THIS IS WHERE CALCULATIONS HAPPEN)
-            $expected_amount = (float) get_post_meta($order_id, 'expected_amount', true);
-            $new_expected = $expected_amount + (float) $entry['bonus_amt'];
-            
-            update_post_meta($order_id, 'expected_amount', $new_expected);
-            update_post_meta($order_id, 'remaining_to_receive', $new_expected);
-            update_post_meta($order_id, 'applied_referral_bonus', (float) $entry['bonus_amt']);
-            
-            // Mark bonus as active
-            $entry['status'] = 'active';
-            $entry['activated_date'] = current_time('mysql');
-            $entry['applied_to_order'] = $order_id; // 👈 ADD THIS LINE
-            $bonus_activated = true;
-            
-            buytap_log('Referral bonus activated and applied', [
-                'order_id' => $order_id,
-                'upline_id' => $upline_id,
-                'bonus_amount' => $entry['bonus_amt'],
-                'old_expected' => $expected_amount,
-                'new_expected' => $new_expected
-            ]);
-            break;
-        }
-    }
-
-    if ($bonus_activated) {
-        update_user_meta($upline_id, 'referral_bonus_history', $bonus_history);
-        // Clean up the marker
-        delete_post_meta($order_id, '_has_pending_referral_bonus');
-    }
-    
-    return $bonus_activated;
 }
 
 function buytap_redirect_with_error($message) {
@@ -1133,12 +1064,10 @@ add_shortcode('my_referral_bonus_history', function() {
                         <td style="color:green;">+Ksh <?= number_format($bonus['bonus_amt'], 2) ?></td>
                         <td>#<?= intval($bonus['order_id']) ?></td>
                         <td>
-                            <?php if ($bonus['status'] === 'active'): ?>
-                                <span style="color:green;">✔ Active</span>
-                            <?php elseif ($bonus['status'] === 'pending'): ?>
-                                <span style="color:orange;">Pending</span>
+                            <?php if ($bonus['status'] === 'applied'): ?>
+                                <span style="color:green;">✔ Applied</span>
                             <?php else: ?>
-                                <span style="color:gray;"><?= esc_html($bonus['status']) ?></span>
+                                <span style="color:orange;">Pending</span>
                             <?php endif; ?>
                         </td>
                         <td>
@@ -1208,7 +1137,7 @@ function buytap_verify_bonus_application($user_id) {
     $needs_update = false;
     
     foreach ($bonus_history as &$bonus) {
-        if ($bonus['status'] === 'active') {  // 👈 CHANGE 'applied' to 'active'
+        if ($bonus['status'] === 'applied') {
             // Verify the bonus was actually added to an order
             $order = get_post($bonus['applied_to_order']);
             if (!$order || $order->post_type !== 'buytap_order') {
@@ -2583,11 +2512,6 @@ function buytap_atomic_give_back_to_seller($seller_order_id, $amount) {
 function buytap_force_revoke_cleanup_chunks($buyer_order_id, $reason = 'Admin Revoked') {
     global $wpdb;
     $t = buytap_chunks_table();
-	
-	// 🔐 CLEAN UP PENDING REFERRAL BONUS ON REVOCATION
-    if (get_post_meta($buyer_order_id, '_has_pending_referral_bonus', true) === 'yes') {
-        delete_post_meta($buyer_order_id, '_has_pending_referral_bonus');
-    }
 
     $chunks = buytap_buyer_chunks($buyer_order_id);
 	$affected_sellers = [];
@@ -3359,15 +3283,6 @@ function buytap_activate_buyer_if_complete($buyer_order_id) {
     update_post_meta($buyer_order_id, 'date_purchased', date('Y-m-d H:i:s', current_time('timestamp')));
     update_post_meta($buyer_order_id, 'running_status', 'Running');
     update_post_meta($buyer_order_id, 'time_remaining', $maturity_ts);
-	
-	// 🔐 ACTIVATE REFERRAL BONUS WHEN ORDER BECOMES ACTIVE
-    buytap_activate_referral_bonus($buyer_order_id);
-
-    buytap_log('activate: success', [
-        'buyer_order_id' => $buyer_order_id,
-        'duration_days'  => $duration_days,
-        'matures_at'     => $maturity_ts
-    ]);
 
     buytap_log('activate: success', [
         'buyer_order_id' => $buyer_order_id,
