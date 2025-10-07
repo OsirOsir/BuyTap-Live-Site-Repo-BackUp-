@@ -926,22 +926,42 @@ function buytap_process_order_submission($amount, $duration, $buyer_id = 0) {
     // ✅ Expected return including profit
     $expected_return = $amount + ($amount * $profit_percent / 100);
 	
+	// 🔧 ENSURE WALLET EXISTS: Initialize wallet balance if it doesn't exist
+	if (!metadata_exists('user', $buyer_id, 'buytap_wallet_balance')) {
+		update_user_meta($buyer_id, 'buytap_wallet_balance', 0);
+		if (function_exists('buytap_log')) {
+			buytap_log('Initialized wallet balance for user', ['user_id' => $buyer_id]);
+		}
+	}
+	
+	
 	// Wallet 5% reinvestment
+	// 🔧 FIXED: Wallet 5% reinvestment - PROPERLY IMPLEMENTED
 	$wallet_balance = (float) get_user_meta($buyer_id, 'buytap_wallet_balance', true);
 
 	if ($wallet_balance > 0) {
 		$wallet_bonus = round($wallet_balance * 0.05, 2); // 5% of wallet
-		$expected_return += $wallet_bonus; // add to expected return
-		$new_balance = max(0, $wallet_balance - $wallet_bonus);
-		update_user_meta($buyer_id, 'buytap_wallet_balance', $new_balance);
 
-		if (function_exists('buytap_log_credit_action')) {
-			buytap_log_credit_action("Wallet auto-clear step: Deducted 5% (KSh {$wallet_bonus}) from user {$buyer_id} wallet (old: {$wallet_balance}, new: {$new_balance}) → added to expected return.");
+		// ✅ Add to expected return
+		$expected_return += $wallet_bonus;
+
+		// ✅ Deduct from wallet (5% of current balance)
+		$new_balance = max(0, $wallet_balance - $wallet_bonus);
+		$update_success = update_user_meta($buyer_id, 'buytap_wallet_balance', $new_balance);
+
+		// ✅ Log the transaction for debugging
+		if (function_exists('buytap_log')) {
+			buytap_log('Wallet auto-clear applied', [
+				'user_id' => $buyer_id,
+				'old_wallet_balance' => $wallet_balance,
+				'wallet_bonus_5percent' => $wallet_bonus,
+				'new_wallet_balance' => $new_balance,
+				'base_expected' => $expected_return - $wallet_bonus,
+				'final_expected' => $expected_return,
+				'update_success' => $update_success
+			]);
 		}
 	}
-
-	
-
     // 📝 Create order
     $order_id = wp_insert_post([
         'post_type'   => 'buytap_order',
