@@ -213,35 +213,18 @@ function buytap_wallet_creditor_admin_page() {
 
     echo '</form></div>';
 }
-
 /**
  * Shortcode: [buytap_wallet]
- * Displays the logged-in user's wallet balance in KSh
+ * Displays the logged-in user's wallet balance in KSh (plain text)
  */
 add_shortcode('buytap_wallet', function () {
     if (!is_user_logged_in()) {
-        return '<p>Please log in to view your wallet balance.</p>';
+        return 'Please log in to view your wallet balance.';
     }
 
     $user_id = get_current_user_id();
     $balance = (float) get_user_meta($user_id, 'buytap_wallet_balance', true);
 
-    ob_start(); ?>
-    <div class="buytap-wallet-box" style="
-        background: #f8f9fa;
-        border: 1px solid #ddd;
-        border-radius: 8px;
-        padding: 16px;
-        text-align: center;
-        max-width: 320px;
-        margin: 10px auto;
-        box-shadow: 0 2px 6px rgba(0,0,0,0.05);
-    ">
-        <h3 style="margin:0 0 8px 0; color:#4b0082;">💰 Tap Vault </h3>
-        <p style="font-size:1.4em; color:#222; font-weight:600;">
-            KSh <?= number_format($balance, 2) ?>
-        </p>
-    </div>
-    <?php
-    return ob_get_clean();
+    return 'KSh ' . number_format($balance, 2);
 });
+
